@@ -1,0 +1,149 @@
+name: CIOOS Deploy Docker Compose
+description: Deploy a Docker Compose project to a remote server over WireGuard VPN
+
+inputs:
+  wireguard_interface:
+    description: "WireGuard interface name"
+    required: false
+    default: "wg0"
+  wg_config:
+    description: "Full WireGuard config file content"
+    required: false
+    default: ""
+  ssh_host:
+    description: "Remote SSH host"
+    required: true
+  ssh_port:
+    description: "Remote SSH port"
+    required: false
+    default: "22"
+  ssh_username:
+    description: "Remote SSH username"
+    required: true
+  ssh_key:
+    description: "SSH private key for remote connection"
+    required: true
+  ssh_passphrase:
+    description: "SSH key passphrase"
+    required: false
+    default: ""
+  source_dir:
+    description: "Path on the runner to copy from"
+    required: false
+    default: "."
+  deploy_path:
+    description: "Remote path where the project gets deployed"
+    required: true
+  stack_name:
+    description: "Docker Compose stack/project name"
+    required: true
+  compose_files:
+    description: "Space-separated list of docker compose files (e.g. 'docker-compose.yml docker-compose.prod.yml')"
+    required: false
+    default: "docker-compose.yml"
+  op_secret_files:
+    description: "Space-separated list of files to inject 1Password secrets into"
+    required: false
+    default: ""
+  op_service_account_token:
+    description: "1Password service account token"
+    required: false
+    default: ""
+  docker_compose_down:
+    description: "Run docker compose down before up"
+    required: false
+    default: "false"
+
+runs:
+  using: composite
+  steps:
+    - name: Install WireGuard
+      if: inputs.wg_config != ''
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y wireguard
+
+    - name: Configure and start WireGuard
+      if: inputs.wg_config != ''
+      shell: bash
+      run: |
+        echo "${{ inputs.wg_config }}" | sudo tee /etc/wireguard/${{ inputs.wireguard_interface }}.conf > /dev/null
+        sudo chmod 600 /etc/wireguard/${{ inputs.wireguard_interface }}.conf
+        sudo wg-quick up ${{ inputs.wireguard_interface }}
+
+    - name: Verify WireGuard connection
+      if: inputs.wg_config != ''
+      shell: bash
+      run: |
+        sudo wg show ${{ inputs.wireguard_interface }}
+        ping -c 3 ${{ inputs.ssh_host }}
+
+    - name: Copy files to remote server
+      uses: appleboy/scp-action@v0.1.7
+      with:
+        host: ${{ inputs.ssh_host }}
+        port: ${{ inputs.ssh_port }}
+        username: ${{ inputs.ssh_username }}
+        key: ${{ inputs.ssh_key }}
+        passphrase: ${{ inputs.ssh_passphrase }}
+        source: "${{ inputs.source_dir }}/*"
+        target: ${{ inputs.deploy_path }}
+        strip_components: 1
+
+    - name: Build deploy script
+      id: deploy-script
+      shell: bash
+      run: |
+        FLAGS=""
+        for f in ${{ inputs.compose_files }}; do
+          FLAGS="${FLAGS} -f ${f}"
+        done
+        COMPOSE="docker compose -p ${{ inputs.stack_name }} ${FLAGS}"
+
+        SCRIPT="set -e"
+        SCRIPT="${SCRIPT} && cd ${{ inputs.deploy_path }}"
+        SCRIPT="${SCRIPT} && ${COMPOSE} build --pull"
+        if [ "${{ inputs.docker_compose_down }}" = "true" ]; then
+          SCRIPT="${SCRIPT} && ${COMPOSE} down --remove-orphans"
+        fi
+        SCRIPT="${SCRIPT} && ${COMPOSE} up -d --remove-orphans"
+        SCRIPT="${SCRIPT} && docker image prune -f"
+
+        echo "script=${SCRIPT}" >> "$GITHUB_OUTPUT"
+
+    - name: Inject 1Password secrets on remote host
+      if: inputs.op_secret_files != ''
+      uses: appleboy/ssh-action@v1.2.0
+      with:
+        host: ${{ inputs.ssh_host }}
+        port: ${{ inputs.ssh_port }}
+        username: ${{ inputs.ssh_username }}
+        key: ${{ inputs.ssh_key }}
+        passphrase: ${{ inputs.ssh_passphrase }}
+        envs: OP_SERVICE_ACCOUNT_TOKEN
+        script: |
+          set -e
+          cd ${{ inputs.deploy_path }}
+          for file in ${{ inputs.op_secret_files }}; do
+            echo "Injecting secrets into ${file}"
+            op inject -i "${file}" -o "${file}.injected"
+            mv "${file}.injected" "${file}"
+          done
+      env:
+        OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.op_service_account_token }}
+
+    - name: Deploy with Docker Compose
+      uses: appleboy/ssh-action@v1.2.0
+      with:
+        host: ${{ inputs.ssh_host }}
+        port: ${{ inputs.ssh_port }}
+        username: ${{ inputs.ssh_username }}
+        key: ${{ inputs.ssh_key }}
+        passphrase: ${{ inputs.ssh_passphrase }}
+        script: ${{ steps.deploy-script.outputs.script }}
+
+    - name: Tear down WireGuard
+      if: always() && inputs.wg_config != ''
+      shell: bash
+      run: sudo wg-quick down ${{ inputs.wireguard_interface }}
