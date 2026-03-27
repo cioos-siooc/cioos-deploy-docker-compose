@@ -88,19 +88,19 @@ runs:
       run: |
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
         REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-        ${SSH_CMD} bash -s -- "${REPO_URL}" "${GITHUB_SHA}" <<'REMOTE_SCRIPT'
+        REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
+        ${SSH_CMD} bash -s -- "${REPO_URL}" "${REF}" <<'REMOTE_SCRIPT'
           set -e
           REPO_URL="$1"
-          COMMIT_SHA="$2"
+          REF="$2"
           if [ -d "${{ inputs.deploy_path }}/.git" ]; then
             cd "${{ inputs.deploy_path }}"
             git remote set-url origin "${REPO_URL}"
             git fetch origin
-            git checkout "${COMMIT_SHA}"
+            git checkout "${REF}" -- || git checkout -b "${REF}" "origin/${REF}"
+            git pull origin "${REF}"
           else
-            git clone "${REPO_URL}" "${{ inputs.deploy_path }}"
-            cd "${{ inputs.deploy_path }}"
-            git checkout "${COMMIT_SHA}"
+            git clone --branch "${REF}" "${REPO_URL}" "${{ inputs.deploy_path }}"
           fi
         REMOTE_SCRIPT
       env:
