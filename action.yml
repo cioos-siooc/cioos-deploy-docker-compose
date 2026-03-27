@@ -111,14 +111,14 @@ runs:
       shell: bash
       run: |
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
-        ${SSH_CMD} bash -s -- "${OP_SERVICE_ACCOUNT_TOKEN}" <<'REMOTE_SCRIPT'
+        ${SSH_CMD} bash -s <<REMOTE_SCRIPT
           set -e
-          export OP_SERVICE_ACCOUNT_TOKEN="$1"
+          export OP_SERVICE_ACCOUNT_TOKEN="${OP_SERVICE_ACCOUNT_TOKEN}"
           cd ${{ inputs.deploy_path }}
           for file in ${{ inputs.op_secret_files }}; do
-            echo "Injecting secrets into ${file}"
-            op inject -i "${file}" -o "${file}.injected"
-            mv "${file}.injected" "${file}"
+            echo "Injecting secrets into \${file}"
+            op inject -i "\${file}" -o "\${file}.injected"
+            mv "\${file}.injected" "\${file}"
           done
         REMOTE_SCRIPT
       env:
