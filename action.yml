@@ -119,6 +119,11 @@ runs:
       shell: bash
       run: |
         set -e
+        if [ -z "${OP_SERVICE_ACCOUNT_TOKEN}" ]; then
+          echo "::error::OP_SERVICE_ACCOUNT_TOKEN is not set. Make sure op_service_account_token input is provided."
+          exit 1
+        fi
+        echo "OP_SERVICE_ACCOUNT_TOKEN is set (length: ${#OP_SERVICE_ACCOUNT_TOKEN})"
         SCP_CMD="scp -i ~/.ssh/deploy_key -P ${{ inputs.ssh_port }}"
         for file in ${{ inputs.op_secret_files }}; do
           echo "Injecting secrets into ${file}"
