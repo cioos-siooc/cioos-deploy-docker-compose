@@ -67,13 +67,10 @@ runs:
       if: inputs.wg_config != ''
       shell: bash
       run: |
-        echo "${{ inputs.wg_config }}" | sudo tee /etc/wireguard/${{ inputs.wireguard_interface }}.conf > /dev/null
+        # Strip the DNS directive so wg-quick doesn't override the runner's DNS resolver
+        echo "${{ inputs.wg_config }}" | sed '/^DNS\s*=/Id' | sudo tee /etc/wireguard/${{ inputs.wireguard_interface }}.conf > /dev/null
         sudo chmod 600 /etc/wireguard/${{ inputs.wireguard_interface }}.conf
-        # Save the runner's DNS config before WireGuard overrides it
-        sudo cp /etc/resolv.conf /etc/resolv.conf.bak
         sudo wg-quick up ${{ inputs.wireguard_interface }}
-        # Restore the original DNS so public hosts (e.g. github.com) remain resolvable
-        sudo cp /etc/resolv.conf.bak /etc/resolv.conf
 
     - name: Verify WireGuard connection
       if: inputs.wg_config != ''
