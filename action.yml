@@ -106,20 +106,26 @@ runs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
-    - name: Inject 1Password secrets on remote host
+    - name: Install 1Password CLI
       if: inputs.op_secret_files != ''
       shell: bash
       run: |
-        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
-        SCRIPT="set -e"
-        SCRIPT="${SCRIPT} && export OP_SERVICE_ACCOUNT_TOKEN='${OP_SERVICE_ACCOUNT_TOKEN}'"
-        SCRIPT="${SCRIPT} && cd ${{ inputs.deploy_path }}"
+        curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor -o /usr/share/keyrings/1password-archive-keyring.gpg
+        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" | sudo tee /etc/apt/sources.list.d/1password.list
+        sudo apt-get update && sudo apt-get install -y 1password-cli
+
+    - name: Inject 1Password secrets and copy to remote
+      if: inputs.op_secret_files != ''
+      shell: bash
+      run: |
+        set -e
+        SCP_CMD="scp -i ~/.ssh/deploy_key -P ${{ inputs.ssh_port }}"
         for file in ${{ inputs.op_secret_files }}; do
-          SCRIPT="${SCRIPT} && echo 'Injecting secrets into ${file}'"
-          SCRIPT="${SCRIPT} && op inject -i '${file}' -o '${file}.injected'"
-          SCRIPT="${SCRIPT} && mv '${file}.injected' '${file}'"
+          echo "Injecting secrets into ${file}"
+          op inject -i "${file}" -o "${file}.injected"
+          ${SCP_CMD} "${file}.injected" "${{ inputs.ssh_username }}@${{ inputs.ssh_host }}:${{ inputs.deploy_path }}/${file}"
+          rm -f "${file}.injected"
         done
-        ${SSH_CMD} "${SCRIPT}"
       env:
         OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.op_service_account_token }}
 
