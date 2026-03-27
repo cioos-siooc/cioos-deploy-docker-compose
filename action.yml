@@ -23,10 +23,6 @@ inputs:
   ssh_key:
     description: "SSH private key for remote connection"
     required: true
-  ssh_passphrase:
-    description: "SSH key passphrase"
-    required: false
-    default: ""
   deploy_path:
     description: "Remote path where the project gets deployed"
     required: true
@@ -56,14 +52,12 @@ runs:
     - name: Install WireGuard
       if: inputs.wg_config != ''
       shell: bash
-      run: |
-        sudo apt-get install -y wireguard
+      run: sudo apt-get install -y wireguard
 
     - name: Configure and start WireGuard
       if: inputs.wg_config != ''
       shell: bash
       run: |
-        # Strip the DNS directive so wg-quick doesn't override the runner's DNS resolver
         echo "${{ inputs.wg_config }}" | sed '/^DNS\s*=/Id' | sudo tee /etc/wireguard/${{ inputs.wireguard_interface }}.conf > /dev/null
         sudo chmod 600 /etc/wireguard/${{ inputs.wireguard_interface }}.conf
         sudo wg-quick up ${{ inputs.wireguard_interface }}
@@ -106,33 +100,17 @@ runs:
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
-    - name: Install 1Password CLI
+    - name: Inject 1Password secrets on remote host
       if: inputs.op_secret_files != ''
       shell: bash
       run: |
-        curl -sS https://downloads.1password.com/linux/keys/1password.asc | sudo gpg --dearmor -o /usr/share/keyrings/1password-archive-keyring.gpg
-        echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/1password-archive-keyring.gpg] https://downloads.1password.com/linux/debian/$(dpkg --print-architecture) stable main" | sudo tee /etc/apt/sources.list.d/1password.list
-        sudo apt-get update && sudo apt-get install -y 1password-cli
-
-    - name: Inject 1Password secrets and copy to remote
-      if: inputs.op_secret_files != ''
-      shell: bash
-      run: |
-        set -e
-        if [ -z "${OP_SERVICE_ACCOUNT_TOKEN}" ]; then
-          echo "::error::OP_SERVICE_ACCOUNT_TOKEN is not set. Make sure op_service_account_token input is provided."
-          exit 1
-        fi
-        echo "OP_SERVICE_ACCOUNT_TOKEN is set (length: ${#OP_SERVICE_ACCOUNT_TOKEN})"
-        SCP_CMD="scp -i ~/.ssh/deploy_key -P ${{ inputs.ssh_port }}"
+        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
+        SCRIPT="set -e && cd ${{ inputs.deploy_path }}"
+        SCRIPT="${SCRIPT} && export OP_SERVICE_ACCOUNT_TOKEN='${{ inputs.op_service_account_token }}'"
         for file in ${{ inputs.op_secret_files }}; do
-          echo "Injecting secrets into ${file}"
-          op inject -i "${file}" -o "${file}.injected"
-          ${SCP_CMD} "${file}.injected" "${{ inputs.ssh_username }}@${{ inputs.ssh_host }}:${{ inputs.deploy_path }}/${file}"
-          rm -f "${file}.injected"
+          SCRIPT="${SCRIPT} && op inject -i '${file}' -o '${file}.injected' && mv '${file}.injected' '${file}'"
         done
-      env:
-        OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.op_service_account_token }}
+        ${SSH_CMD} "${SCRIPT}"
 
     - name: Deploy with Docker Compose
       shell: bash
@@ -143,13 +121,11 @@ runs:
           FLAGS="${FLAGS} -f ${f}"
         done
         COMPOSE="docker compose -p ${{ inputs.stack_name }} ${FLAGS}"
-
         SCRIPT="set -e && cd ${{ inputs.deploy_path }} && ${COMPOSE} build --pull"
         if [ "${{ inputs.docker_compose_down }}" = "true" ]; then
           SCRIPT="${SCRIPT} && ${COMPOSE} down --remove-orphans"
         fi
         SCRIPT="${SCRIPT} && ${COMPOSE} up -d --remove-orphans && docker image prune -f"
-
         ${SSH_CMD} "${SCRIPT}"
 
     - name: Tear down WireGuard
