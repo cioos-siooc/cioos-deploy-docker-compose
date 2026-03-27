@@ -27,10 +27,6 @@ inputs:
     description: "SSH key passphrase"
     required: false
     default: ""
-  source_dir:
-    description: "Path on the runner to copy from"
-    required: false
-    default: "."
   deploy_path:
     description: "Remote path where the project gets deployed"
     required: true
@@ -79,69 +75,63 @@ runs:
         sudo wg show ${{ inputs.wireguard_interface }}
         ping -c 3 ${{ inputs.ssh_host }}
 
-    - name: Copy files to remote server
-      uses: appleboy/scp-action@v0.1.7
-      with:
-        host: ${{ inputs.ssh_host }}
-        port: ${{ inputs.ssh_port }}
-        username: ${{ inputs.ssh_username }}
-        key: ${{ inputs.ssh_key }}
-        passphrase: ${{ inputs.ssh_passphrase }}
-        source: "${{ inputs.source_dir }}/*"
-        target: ${{ inputs.deploy_path }}
-        strip_components: 1
-
-    - name: Build deploy script
-      id: deploy-script
+    - name: Setup SSH
       shell: bash
       run: |
+        mkdir -p ~/.ssh
+        echo "${{ inputs.ssh_key }}" > ~/.ssh/deploy_key
+        chmod 600 ~/.ssh/deploy_key
+        ssh-keyscan -p ${{ inputs.ssh_port }} ${{ inputs.ssh_host }} >> ~/.ssh/known_hosts 2>/dev/null
+
+    - name: Sync repo to remote server
+      shell: bash
+      run: |
+        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
+        REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+        ${SSH_CMD} bash -s -- "${REPO_URL}" "${GITHUB_SHA}" <<'REMOTE_SCRIPT'
+          set -e
+          REPO_URL="$1"
+          COMMIT_SHA="$2"
+          if [ -d "${{ inputs.deploy_path }}/.git" ]; then
+            cd "${{ inputs.deploy_path }}"
+            git remote set-url origin "${REPO_URL}"
+            git fetch origin
+            git checkout "${COMMIT_SHA}"
+          else
+            git clone "${REPO_URL}" "${{ inputs.deploy_path }}"
+            cd "${{ inputs.deploy_path }}"
+            git checkout "${COMMIT_SHA}"
+          fi
+        REMOTE_SCRIPT
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Inject 1Password secrets on remote host
+      if: inputs.op_secret_files != ''
+      shell: bash
+      run: |
+        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
+        ${SSH_CMD} "set -e && cd ${{ inputs.deploy_path }} && export OP_SERVICE_ACCOUNT_TOKEN='${OP_SERVICE_ACCOUNT_TOKEN}' && for file in ${{ inputs.op_secret_files }}; do echo \"Injecting secrets into \${file}\" && op inject -i \"\${file}\" -o \"\${file}.injected\" && mv \"\${file}.injected\" \"\${file}\"; done"
+      env:
+        OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.op_service_account_token }}
+
+    - name: Deploy with Docker Compose
+      shell: bash
+      run: |
+        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
         FLAGS=""
         for f in ${{ inputs.compose_files }}; do
           FLAGS="${FLAGS} -f ${f}"
         done
         COMPOSE="docker compose -p ${{ inputs.stack_name }} ${FLAGS}"
 
-        SCRIPT="set -e"
-        SCRIPT="${SCRIPT} && cd ${{ inputs.deploy_path }}"
-        SCRIPT="${SCRIPT} && ${COMPOSE} build --pull"
+        SCRIPT="set -e && cd ${{ inputs.deploy_path }} && ${COMPOSE} build --pull"
         if [ "${{ inputs.docker_compose_down }}" = "true" ]; then
           SCRIPT="${SCRIPT} && ${COMPOSE} down --remove-orphans"
         fi
-        SCRIPT="${SCRIPT} && ${COMPOSE} up -d --remove-orphans"
-        SCRIPT="${SCRIPT} && docker image prune -f"
+        SCRIPT="${SCRIPT} && ${COMPOSE} up -d --remove-orphans && docker image prune -f"
 
-        echo "script=${SCRIPT}" >> "$GITHUB_OUTPUT"
-
-    - name: Inject 1Password secrets on remote host
-      if: inputs.op_secret_files != ''
-      uses: appleboy/ssh-action@v1.2.0
-      with:
-        host: ${{ inputs.ssh_host }}
-        port: ${{ inputs.ssh_port }}
-        username: ${{ inputs.ssh_username }}
-        key: ${{ inputs.ssh_key }}
-        passphrase: ${{ inputs.ssh_passphrase }}
-        envs: OP_SERVICE_ACCOUNT_TOKEN
-        script: |
-          set -e
-          cd ${{ inputs.deploy_path }}
-          for file in ${{ inputs.op_secret_files }}; do
-            echo "Injecting secrets into ${file}"
-            op inject -i "${file}" -o "${file}.injected"
-            mv "${file}.injected" "${file}"
-          done
-      env:
-        OP_SERVICE_ACCOUNT_TOKEN: ${{ inputs.op_service_account_token }}
-
-    - name: Deploy with Docker Compose
-      uses: appleboy/ssh-action@v1.2.0
-      with:
-        host: ${{ inputs.ssh_host }}
-        port: ${{ inputs.ssh_port }}
-        username: ${{ inputs.ssh_username }}
-        key: ${{ inputs.ssh_key }}
-        passphrase: ${{ inputs.ssh_passphrase }}
-        script: ${{ steps.deploy-script.outputs.script }}
+        ${SSH_CMD} "${SCRIPT}"
 
     - name: Tear down WireGuard
       if: always() && inputs.wg_config != ''
