@@ -86,7 +86,7 @@ runs:
         REF="${REF#refs/heads/}"
         echo "::notice::Syncing ${GITHUB_REPOSITORY} (ref: ${REF}) to ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
         echo "::group::Git sync output"
-        ${SSH_CMD} bash -s -- "${REPO_URL}" "${REF}" <<'REMOTE_SCRIPT'
+        if ! OUTPUT=$(${SSH_CMD} bash -s -- "${REPO_URL}" "${REF}" <<'REMOTE_SCRIPT' 2>&1
           set -e
           REPO_URL="$1"
           REF="$2"
@@ -103,6 +103,18 @@ runs:
           fi
           echo "Repo sync complete."
         REMOTE_SCRIPT
+        ); then
+          echo "${OUTPUT}"
+          echo "::endgroup::"
+          {
+            echo "DEPLOY_ERROR<<EOF"
+            echo "Repository sync failed:"
+            echo "${OUTPUT}" | tail -20
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          exit 1
+        fi
+        echo "${OUTPUT}"
         echo "::endgroup::"
         echo "DEPLOY_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       env:
@@ -164,14 +176,19 @@ runs:
         fi
         SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Pruning unused images' && docker image prune -f"
         SCRIPT="${SCRIPT} && echo '::endgroup::'"
-        if ${SSH_CMD} "${SCRIPT}"; then
+        if OUTPUT=$(${SSH_CMD} "${SCRIPT}" 2>&1); then
+          echo "${OUTPUT}"
           echo "DEPLOY_RESULT=success" >> "$GITHUB_ENV"
         else
-          DEPLOY_ERROR="$(${SSH_CMD} "cd ${{ inputs.deploy_path }} && ${COMPOSE} ps 2>&1 | head -20" || echo 'Unable to retrieve container status')"
-          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
+          echo "${OUTPUT}"
+          CONTAINER_STATUS="$(${SSH_CMD} "cd ${{ inputs.deploy_path }} && ${COMPOSE} ps 2>&1 | head -20" 2>/dev/null || echo 'Unable to retrieve container status')"
           {
             echo "DEPLOY_ERROR<<EOF"
-            echo "$DEPLOY_ERROR"
+            echo "Docker Compose deployment failed:"
+            echo "${OUTPUT}" | tail -20
+            echo ""
+            echo "Container status:"
+            echo "${CONTAINER_STATUS}"
             echo "EOF"
           } >> "$GITHUB_ENV"
           exit 1
