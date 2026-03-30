@@ -83,6 +83,7 @@ runs:
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
         REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
+        REF="${REF#refs/heads/}"
         echo "::notice::Syncing ${GITHUB_REPOSITORY} (ref: ${REF}) to ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
         echo "::group::Git sync output"
         ${SSH_CMD} bash -s -- "${REPO_URL}" "${REF}" <<'REMOTE_SCRIPT'
@@ -94,8 +95,8 @@ runs:
             cd "${{ inputs.deploy_path }}"
             git remote set-url origin "${REPO_URL}"
             git fetch origin
-            git checkout "${REF}" -- || git checkout -b "${REF}" "origin/${REF}"
-            git pull origin "${REF}"
+            git checkout -f "${REF}" || git checkout -b "${REF}" "origin/${REF}"
+            git reset --hard "origin/${REF}"
           else
             echo "Cloning repository..."
             git clone --branch "${REF}" "${REPO_URL}" "${{ inputs.deploy_path }}"
