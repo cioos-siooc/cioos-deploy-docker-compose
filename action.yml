@@ -83,7 +83,8 @@ runs:
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
         REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
-        echo "::group::Syncing ${GITHUB_REPOSITORY} (ref: ${REF}) to ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
+        echo "::notice::Syncing ${GITHUB_REPOSITORY} (ref: ${REF}) to ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
+        echo "::group::Git sync output"
         ${SSH_CMD} bash -s -- "${REPO_URL}" "${REF}" <<'REMOTE_SCRIPT'
           set -e
           REPO_URL="$1"
@@ -102,6 +103,7 @@ runs:
           echo "Repo sync complete."
         REMOTE_SCRIPT
         echo "::endgroup::"
+        echo "DEPLOY_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
@@ -110,7 +112,8 @@ runs:
       shell: bash
       run: |
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
-        echo "::group::Injecting 1Password secrets into: ${{ inputs.op_secret_files }}"
+        echo "::notice::Injecting 1Password secrets into: ${{ inputs.op_secret_files }}"
+        echo "::group::1Password injection output"
         SCRIPT="set -e && cd ${{ inputs.deploy_path }}"
         SCRIPT="${SCRIPT} && export OP_SERVICE_ACCOUNT_TOKEN='${{ inputs.op_service_account_token }}'"
         for file in ${{ inputs.op_secret_files }}; do
@@ -129,7 +132,7 @@ runs:
           FLAGS="${FLAGS} -f ${f}"
         done
         COMPOSE="docker compose -p ${{ inputs.stack_name }} ${FLAGS}"
-        echo "Deploying stack '${{ inputs.stack_name }}' with compose files: ${{ inputs.compose_files }}"
+        echo "::notice::Deploying stack '${{ inputs.stack_name }}' to ${{ inputs.ssh_host }}"
         echo "::group::Building images"
         SCRIPT="set -e && cd ${{ inputs.deploy_path }} && echo 'Building images...' && ${COMPOSE} build --pull"
         if [ "${{ inputs.docker_compose_down }}" = "true" ]; then
@@ -139,7 +142,37 @@ runs:
         SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Pruning unused images' && docker image prune -f"
         SCRIPT="${SCRIPT} && echo '::endgroup::'"
         ${SSH_CMD} "${SCRIPT}"
-        echo "Deploy complete."
+
+    - name: Write job summary
+      if: always()
+      shell: bash
+      run: |
+        REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
+        REF_NAME="${REF#refs/heads/}"
+        DEPLOY_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+        STATUS="${{ job.status }}"
+        if [ "${STATUS}" = "success" ]; then
+          ICON="✅"
+        else
+          ICON="❌"
+        fi
+        {
+          echo "## ${ICON} Deploy Summary"
+          echo ""
+          echo "| | |"
+          echo "|---|---|"
+          echo "| **Stack** | \`${{ inputs.stack_name }}\` |"
+          echo "| **Host** | \`${{ inputs.ssh_host }}\` |"
+          echo "| **Path** | \`${{ inputs.deploy_path }}\` |"
+          echo "| **Branch / Ref** | \`${REF_NAME}\` |"
+          echo "| **Compose files** | \`${{ inputs.compose_files }}\` |"
+          echo "| **Compose down** | \`${{ inputs.docker_compose_down }}\` |"
+          echo "| **1Password secrets** | \`${{ inputs.op_secret_files || 'none' }}\` |"
+          echo "| **WireGuard** | \`${{ inputs.wg_config != '' && 'yes' || 'no' }}\` |"
+          echo "| **Started** | \`${DEPLOY_START:-N/A}\` |"
+          echo "| **Finished** | \`${DEPLOY_END}\` |"
+          echo "| **Commit** | [\`${GITHUB_SHA::7}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
+        } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Tear down WireGuard
       if: always() && inputs.wg_config != ''
