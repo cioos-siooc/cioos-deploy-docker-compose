@@ -136,7 +136,7 @@ runs:
         echo "::group::Building images"
         SCRIPT="set -e && cd ${{ inputs.deploy_path }} && echo 'Building images...' && ${COMPOSE} build --pull"
         if [ "${{ inputs.docker_compose_down }}" = "true" ]; then
-          SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Recreating containers' && ${COMPOSE} up -d --force-recreate --remove-orphans"
+          SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Stopping existing containers' && ${COMPOSE} down --remove-orphans && echo '::endgroup::' && echo '::group::Starting containers' && ${COMPOSE} up -d --remove-orphans"
         else
           SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Starting containers' && ${COMPOSE} up -d --remove-orphans"
         fi
