@@ -112,6 +112,7 @@ runs:
             echo "${OUTPUT}" | tail -20
             echo "EOF"
           } >> "$GITHUB_ENV"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
           exit 1
         fi
         echo "${OUTPUT}"
@@ -149,6 +150,7 @@ runs:
             echo "${OUTPUT}" | tail -20
             echo "EOF"
           } >> "$GITHUB_ENV"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
           exit 1
         fi
         echo "${OUTPUT}"
@@ -191,6 +193,7 @@ runs:
             echo "${CONTAINER_STATUS}"
             echo "EOF"
           } >> "$GITHUB_ENV"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
           exit 1
         fi
 
@@ -201,11 +204,15 @@ runs:
         REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
         REF_NAME="${REF#refs/heads/}"
         DEPLOY_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-        STATUS="${{ job.status }}"
-        if [ "${STATUS}" = "success" ]; then
-          ICON="✅"
-        else
+        if [ "${DEPLOY_RESULT}" = "failed" ]; then
           ICON="❌"
+          STATUS="failed"
+        elif [ "${DEPLOY_RESULT}" = "success" ]; then
+          ICON="✅"
+          STATUS="success"
+        else
+          ICON="❓"
+          STATUS="unknown"
         fi
         {
           echo "## ${ICON} Deploy Summary"
@@ -223,16 +230,12 @@ runs:
           echo "| **Started** | \`${DEPLOY_START:-N/A}\` |"
           echo "| **Finished** | \`${DEPLOY_END}\` |"
           echo "| **Commit** | [\`${GITHUB_SHA::7}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
-          if [ "${STATUS}" != "success" ]; then
+          if [ -n "${DEPLOY_ERROR}" ]; then
             echo ""
             echo "### Failure Details"
-            if [ -n "${{ env.DEPLOY_ERROR }}" ]; then
-              echo "\`\`\`"
-              echo "${{ env.DEPLOY_ERROR }}"
-              echo "\`\`\`"
-            else
-              echo "See workflow logs for error details."
-            fi
+            echo "\`\`\`"
+            echo "${DEPLOY_ERROR}"
+            echo "\`\`\`"
           fi
         } >> "$GITHUB_STEP_SUMMARY"
 
