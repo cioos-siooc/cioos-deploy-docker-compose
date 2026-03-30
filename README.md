@@ -5,16 +5,18 @@ A GitHub composite action that deploys a Docker Compose project to a remote serv
 - [What it does](#what-it-does)
 - [Usage](#usage)
 - [Inputs](#inputs)
+- [Deploy summary](#deploy-summary)
 - [Host setup](#host-setup)
 
 ## What it does
 
 1. (Optional) Connects to a WireGuard VPN
-2. Copies files from the runner to the remote host via SCP
+2. Syncs the repository to the remote host via SSH + Git
 3. (Optional) Injects 1Password secrets into specified files on the remote host
 4. Runs `docker compose build --pull`, optionally `down --remove-orphans`, then `up -d --remove-orphans`
 5. Prunes dangling Docker images
-6. (Optional) Tears down WireGuard on completion
+6. Writes a deploy summary to the GitHub Actions job summary (including failure details on error)
+7. (Optional) Tears down WireGuard on completion
 
 ## Usage
 
@@ -61,14 +63,26 @@ steps:
       ssh_host: "10.0.0.1"
       ssh_username: "github-deploy"
       ssh_key: ${{ secrets.SSH_KEY }}
-      ssh_passphrase: ${{ secrets.SSH_PASSPHRASE }}
-      source_dir: "."
       deploy_path: "/opt/myapp"
       stack_name: "myapp"
       compose_files: "docker-compose.yml docker-compose.prod.yml"
       op_secret_files: ".env config/secrets.yml"
       op_service_account_token: ${{ secrets.OP_SERVICE_ACCOUNT_TOKEN }}
       docker_compose_down: "true"
+```
+
+### 1Password secret injection with file renaming
+
+Use `source:destination` syntax to inject secrets from a template file into a differently named output file. This is useful when your repo contains `.tpl` templates that should produce plain config files on the server.
+
+```yaml
+op_secret_files: ".env.tpl:.env config/secrets.yml.tpl:config/secrets.yml"
+```
+
+You can mix in-place and renamed entries:
+
+```yaml
+op_secret_files: ".env.tpl:.env config/app.yml"
 ```
 
 ### Deploying multiple instances on the same host
@@ -107,14 +121,18 @@ Use different `deploy_path` and `stack_name` values per branch/environment:
 | `deploy_path` | Yes | | Remote path where the project gets deployed |
 | `stack_name` | Yes | | Docker Compose project name |
 | `ssh_port` | No | `22` | Remote SSH port |
-| `ssh_passphrase` | No | | SSH key passphrase |
-| `source_dir` | No | `.` | Path on the runner to copy from |
 | `compose_files` | No | `docker-compose.yml` | Space-separated list of compose files |
 | `docker_compose_down` | No | `false` | Run `docker compose down` before `up` |
 | `wg_config` | No | | WireGuard config file content (skipped if empty) |
 | `wireguard_interface` | No | `wg0` | WireGuard interface name |
-| `op_secret_files` | No | | Space-separated list of files to inject 1Password secrets into |
+| `op_secret_files` | No | | Space-separated list of files to inject 1Password secrets into. Use `source:destination` to rename (e.g. `.env.tpl:.env`), or just `file` to inject in place. |
 | `op_service_account_token` | No | | 1Password service account token |
+
+## Deploy summary
+
+Every run writes a summary table to the GitHub Actions job summary, visible on the workflow run page. The summary includes the stack name, host, branch, compose files, timestamps, and commit link.
+
+On failure, the summary includes a **Failure Details** section with container status from the remote host to help diagnose issues without digging through logs.
 
 ## Host setup
 
@@ -132,6 +150,14 @@ The user must be in the `docker` group to run `docker compose` commands without 
 ```bash
 curl -fsSL https://get.docker.com | sh
 sudo systemctl enable --now docker
+```
+
+### Install Git
+
+Git must be installed on the remote host for the repository sync step:
+
+```bash
+sudo apt-get install -y git
 ```
 
 ### Install 1Password CLI (optional)
