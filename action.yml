@@ -34,7 +34,7 @@ inputs:
     required: false
     default: "docker-compose.yml"
   op_secret_files:
-    description: "Space-separated list of files to inject 1Password secrets into"
+    description: "Space-separated list of files to inject 1Password secrets into. Use 'source:destination' to rename (e.g. '.env.tpl:.env'), or just 'file' to inject in place."
     required: false
     default: ""
   op_service_account_token:
@@ -117,8 +117,15 @@ runs:
         echo "::group::1Password injection output"
         SCRIPT="set -e && cd ${{ inputs.deploy_path }}"
         SCRIPT="${SCRIPT} && export OP_SERVICE_ACCOUNT_TOKEN='${{ inputs.op_service_account_token }}'"
-        for file in ${{ inputs.op_secret_files }}; do
-          SCRIPT="${SCRIPT} && echo 'Injecting secrets into ${file}...' && op inject -i '${file}' -o '${file}.injected' && mv '${file}.injected' '${file}'"
+        for entry in ${{ inputs.op_secret_files }}; do
+          SRC="${entry%%:*}"
+          DST="${entry#*:}"
+          if [ "${SRC}" = "${DST}" ]; then
+            # No rename — inject in place
+            SCRIPT="${SCRIPT} && echo 'Injecting secrets into ${SRC}...' && op inject -i '${SRC}' -o '${SRC}.injected' && mv '${SRC}.injected' '${SRC}'"
+          else
+            SCRIPT="${SCRIPT} && echo 'Injecting secrets from ${SRC} to ${DST}...' && op inject -i '${SRC}' -o '${DST}'"
+          fi
         done
         SCRIPT="${SCRIPT} && echo '1Password secret injection complete.'"
         ${SSH_CMD} "${SCRIPT}"
