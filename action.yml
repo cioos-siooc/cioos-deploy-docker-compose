@@ -128,7 +128,18 @@ runs:
           fi
         done
         SCRIPT="${SCRIPT} && echo '1Password secret injection complete.'"
-        ${SSH_CMD} "${SCRIPT}"
+        if ! OUTPUT=$(${SSH_CMD} "${SCRIPT}" 2>&1); then
+          echo "${OUTPUT}"
+          echo "::endgroup::"
+          {
+            echo "DEPLOY_ERROR<<EOF"
+            echo "1Password secret injection failed:"
+            echo "${OUTPUT}" | tail -20
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          exit 1
+        fi
+        echo "${OUTPUT}"
         echo "::endgroup::"
 
     - name: Deploy with Docker Compose
