@@ -146,7 +146,18 @@ runs:
         fi
         SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Pruning unused images' && docker image prune -f"
         SCRIPT="${SCRIPT} && echo '::endgroup::'"
-        ${SSH_CMD} "${SCRIPT}"
+        if ${SSH_CMD} "${SCRIPT}"; then
+          echo "DEPLOY_RESULT=success" >> "$GITHUB_ENV"
+        else
+          DEPLOY_ERROR="$(${SSH_CMD} "cd ${{ inputs.deploy_path }} && ${COMPOSE} ps 2>&1 | head -20" || echo 'Unable to retrieve container status')"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
+          {
+            echo "DEPLOY_ERROR<<EOF"
+            echo "$DEPLOY_ERROR"
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          exit 1
+        fi
 
     - name: Write job summary
       if: always()
@@ -177,6 +188,17 @@ runs:
           echo "| **Started** | \`${DEPLOY_START:-N/A}\` |"
           echo "| **Finished** | \`${DEPLOY_END}\` |"
           echo "| **Commit** | [\`${GITHUB_SHA::7}\`](https://github.com/${GITHUB_REPOSITORY}/commit/${GITHUB_SHA}) |"
+          if [ "${STATUS}" != "success" ]; then
+            echo ""
+            echo "### Failure Details"
+            if [ -n "${{ env.DEPLOY_ERROR }}" ]; then
+              echo "\`\`\`"
+              echo "${{ env.DEPLOY_ERROR }}"
+              echo "\`\`\`"
+            else
+              echo "See workflow logs for error details."
+            fi
+          fi
         } >> "$GITHUB_STEP_SUMMARY"
 
     - name: Tear down WireGuard
