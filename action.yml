@@ -83,20 +83,25 @@ runs:
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
         REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
+        echo "::group::Syncing ${GITHUB_REPOSITORY} (ref: ${REF}) to ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
         ${SSH_CMD} bash -s -- "${REPO_URL}" "${REF}" <<'REMOTE_SCRIPT'
           set -e
           REPO_URL="$1"
           REF="$2"
           if [ -d "${{ inputs.deploy_path }}/.git" ]; then
+            echo "Existing repo found, pulling latest changes..."
             cd "${{ inputs.deploy_path }}"
             git remote set-url origin "${REPO_URL}"
             git fetch origin
             git checkout "${REF}" -- || git checkout -b "${REF}" "origin/${REF}"
             git pull origin "${REF}"
           else
+            echo "Cloning repository..."
             git clone --branch "${REF}" "${REPO_URL}" "${{ inputs.deploy_path }}"
           fi
+          echo "Repo sync complete."
         REMOTE_SCRIPT
+        echo "::endgroup::"
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
@@ -105,12 +110,15 @@ runs:
       shell: bash
       run: |
         SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
+        echo "::group::Injecting 1Password secrets into: ${{ inputs.op_secret_files }}"
         SCRIPT="set -e && cd ${{ inputs.deploy_path }}"
         SCRIPT="${SCRIPT} && export OP_SERVICE_ACCOUNT_TOKEN='${{ inputs.op_service_account_token }}'"
         for file in ${{ inputs.op_secret_files }}; do
-          SCRIPT="${SCRIPT} && op inject -i '${file}' -o '${file}.injected' && mv '${file}.injected' '${file}'"
+          SCRIPT="${SCRIPT} && echo 'Injecting secrets into ${file}...' && op inject -i '${file}' -o '${file}.injected' && mv '${file}.injected' '${file}'"
         done
+        SCRIPT="${SCRIPT} && echo '1Password secret injection complete.'"
         ${SSH_CMD} "${SCRIPT}"
+        echo "::endgroup::"
 
     - name: Deploy with Docker Compose
       shell: bash
@@ -121,12 +129,17 @@ runs:
           FLAGS="${FLAGS} -f ${f}"
         done
         COMPOSE="docker compose -p ${{ inputs.stack_name }} ${FLAGS}"
-        SCRIPT="set -e && cd ${{ inputs.deploy_path }} && ${COMPOSE} build --pull"
+        echo "Deploying stack '${{ inputs.stack_name }}' with compose files: ${{ inputs.compose_files }}"
+        echo "::group::Building images"
+        SCRIPT="set -e && cd ${{ inputs.deploy_path }} && echo 'Building images...' && ${COMPOSE} build --pull"
         if [ "${{ inputs.docker_compose_down }}" = "true" ]; then
-          SCRIPT="${SCRIPT} && ${COMPOSE} down --remove-orphans"
+          SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Stopping existing containers' && ${COMPOSE} down --remove-orphans"
         fi
-        SCRIPT="${SCRIPT} && ${COMPOSE} up -d --remove-orphans && docker image prune -f"
+        SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Starting containers' && ${COMPOSE} up -d --remove-orphans"
+        SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Pruning unused images' && docker image prune -f"
+        SCRIPT="${SCRIPT} && echo '::endgroup::'"
         ${SSH_CMD} "${SCRIPT}"
+        echo "Deploy complete."
 
     - name: Tear down WireGuard
       if: always() && inputs.wg_config != ''
