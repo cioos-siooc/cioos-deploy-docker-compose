@@ -135,9 +135,9 @@ runs:
           DST="${entry#*:}"
           if [ "${SRC}" = "${DST}" ]; then
             # No rename — inject in place
-            SCRIPT="${SCRIPT} && echo 'Injecting secrets into ${SRC}...' && op inject -i '${SRC}' -o '${SRC}.injected' && mv '${SRC}.injected' '${SRC}'"
+            SCRIPT="${SCRIPT} && echo 'Injecting secrets into ${SRC}...' && op inject -f -i '${SRC}' -o '${SRC}.injected' && mv '${SRC}.injected' '${SRC}'"
           else
-            SCRIPT="${SCRIPT} && echo 'Injecting secrets from ${SRC} to ${DST}...' && op inject -i '${SRC}' -o '${DST}'"
+            SCRIPT="${SCRIPT} && echo 'Injecting secrets from ${SRC} to ${DST}...' && op inject -f -i '${SRC}' -o '${DST}'"
           fi
         done
         SCRIPT="${SCRIPT} && echo '1Password secret injection complete.'"
