@@ -1,22 +1,49 @@
+<div align="center">
+
 # CIOOS Deploy Docker Compose
 
-A GitHub composite action that deploys a Docker Compose project to a remote server via SSH. Optionally connects through a WireGuard VPN and injects secrets from 1Password before deployment.
+**Deploy a Docker Compose project to a remote server via SSH**
 
-- [What it does](#what-it-does)
+Optionally connects through a **WireGuard VPN** and injects secrets from **1Password** before deployment.
+
+</div>
+
+---
+
+### Table of Contents
+
+- [How it works](#how-it-works)
 - [Usage](#usage)
 - [Inputs](#inputs)
 - [Deploy summary](#deploy-summary)
 - [Host setup](#host-setup)
 
-## What it does
+---
 
-1. (Optional) Connects to a WireGuard VPN
-2. Syncs the repository to the remote host via SSH + Git
-3. (Optional) Injects 1Password secrets into specified files on the remote host
-4. Runs `docker compose build --pull`, optionally `down --remove-orphans`, then `up -d --remove-orphans`
-5. Prunes dangling Docker images
-6. Writes a deploy summary to the GitHub Actions job summary (including failure details on error)
-7. (Optional) Tears down WireGuard on completion
+## How it works
+
+```mermaid
+flowchart LR
+    R[GitHub Runner] --> A[WireGuard VPN] --> B[SSH + Git Sync] --> C[1Password Secrets] --> D[Docker Compose Deploy] --> E[Deploy Summary]
+```
+
+<table>
+<tr><td>
+
+| Step | Description |
+|:----:|-------------|
+| **1** | (Optional) Connect to a WireGuard VPN |
+| **2** | Sync the repository to the remote host via SSH + Git |
+| **3** | (Optional) Inject 1Password secrets into specified files on the remote host |
+| **4** | Run `docker compose build --pull`, optionally `down --remove-orphans`, then `up -d --remove-orphans` |
+| **5** | Prune dangling Docker images |
+| **6** | Write a deploy summary to the GitHub Actions job summary (including failure details on error) |
+| **7** | (Optional) Tear down WireGuard on completion |
+
+</td></tr>
+</table>
+
+---
 
 ## Usage
 
@@ -71,7 +98,8 @@ steps:
       docker_compose_down: "true"
 ```
 
-### 1Password secret injection with file renaming
+<details>
+<summary><strong>1Password secret injection with file renaming</strong></summary>
 
 Use `source:destination` syntax to inject secrets from a template file into a differently named output file. This is useful when your repo contains `.tpl` templates that should produce plain config files on the server.
 
@@ -85,7 +113,10 @@ You can mix in-place and renamed entries:
 op_secret_files: ".env.tpl:.env config/app.yml"
 ```
 
-### Deploying multiple instances on the same host
+</details>
+
+<details>
+<summary><strong>Deploying multiple instances on the same host</strong></summary>
 
 Use different `deploy_path` and `stack_name` values per branch/environment:
 
@@ -111,15 +142,19 @@ Use different `deploy_path` and `stack_name` values per branch/environment:
     stack_name: "myapp-production"
 ```
 
+</details>
+
+---
+
 ## Inputs
 
 | Input | Required | Default | Description |
-|-------|----------|---------|-------------|
-| `ssh_host` | Yes | | Remote SSH host |
-| `ssh_username` | Yes | | Remote SSH username |
-| `ssh_key` | Yes | | SSH private key |
-| `deploy_path` | Yes | | Remote path where the project gets deployed |
-| `stack_name` | Yes | | Docker Compose project name |
+|:------|:--------:|:-------:|:------------|
+| `ssh_host` | **Yes** | | Remote SSH host |
+| `ssh_username` | **Yes** | | Remote SSH username |
+| `ssh_key` | **Yes** | | SSH private key |
+| `deploy_path` | **Yes** | | Remote path where the project gets deployed |
+| `stack_name` | **Yes** | | Docker Compose project name |
 | `ssh_port` | No | `22` | Remote SSH port |
 | `compose_files` | No | `docker-compose.yml` | Space-separated list of compose files |
 | `docker_compose_down` | No | `false` | Run `docker compose down` before `up` |
@@ -128,15 +163,22 @@ Use different `deploy_path` and `stack_name` values per branch/environment:
 | `op_secret_files` | No | | Space-separated list of files to inject 1Password secrets into. Use `source:destination` to rename (e.g. `.env.tpl:.env`), or just `file` to inject in place. |
 | `op_service_account_token` | No | | 1Password service account token |
 
+---
+
 ## Deploy summary
 
-Every run writes a summary table to the GitHub Actions job summary, visible on the workflow run page. The summary includes the stack name, host, branch, compose files, timestamps, and commit link.
+Every run writes a summary table to the **GitHub Actions job summary**, visible on the workflow run page. The summary includes the stack name, host, branch, compose files, timestamps, and commit link.
 
-On failure, the summary includes a **Failure Details** section with container status from the remote host to help diagnose issues without digging through logs.
+> **On failure**, the summary includes a **Failure Details** section with container status from the remote host to help diagnose issues without digging through logs.
+
+---
 
 ## Host setup
 
-### Create a github-deploy user
+> **Prerequisites** — the remote server needs Docker, Git, and a dedicated deploy user. 1Password CLI is only required if you use secret injection.
+
+<details>
+<summary><strong>Create a github-deploy user</strong></summary>
 
 ```bash
 sudo useradd -m -s /bin/bash github-deploy
@@ -145,14 +187,20 @@ sudo usermod -aG docker github-deploy
 
 The user must be in the `docker` group to run `docker compose` commands without `sudo`.
 
-### Install Docker
+</details>
+
+<details>
+<summary><strong>Install Docker</strong></summary>
 
 ```bash
 curl -fsSL https://get.docker.com | sh
 sudo systemctl enable --now docker
 ```
 
-### Install Git
+</details>
+
+<details>
+<summary><strong>Install Git</strong></summary>
 
 Git must be installed on the remote host for the repository sync step:
 
@@ -160,7 +208,10 @@ Git must be installed on the remote host for the repository sync step:
 sudo apt-get install -y git
 ```
 
-### Install 1Password CLI (optional)
+</details>
+
+<details>
+<summary><strong>Install 1Password CLI (optional)</strong></summary>
 
 If you plan to use 1Password secret injection, install the `op` CLI on the host:
 
@@ -179,3 +230,13 @@ op --version
 ```
 
 The `OP_SERVICE_ACCOUNT_TOKEN` is passed to the host at runtime via the action — no need to persist it on the server.
+
+</details>
+
+---
+
+<div align="center">
+
+**[CIOOS](https://cioos.ca)** | **[SIOOC](https://cioos.ca/fr/)**
+
+</div>
