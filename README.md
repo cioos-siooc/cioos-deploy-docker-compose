@@ -34,11 +34,12 @@ flowchart LR
 |:----:|-------------|
 | **1** | (Optional) Connect to a WireGuard VPN |
 | **2** | Sync the repository to the remote host via SSH + Git |
-| **3** | (Optional) Inject 1Password secrets into specified files on the remote host |
-| **4** | Run `docker compose build --pull`, optionally `down --remove-orphans`, then `up -d --remove-orphans` |
-| **5** | Prune dangling Docker images |
-| **6** | Write a deploy summary to the GitHub Actions job summary (including failure details on error) |
-| **7** | (Optional) Tear down WireGuard on completion |
+| **3** | (Optional) Initialize and update git submodules recursively |
+| **4** | (Optional) Inject 1Password secrets into specified files on the remote host |
+| **5** | Run `docker compose build --pull`, optionally `down --remove-orphans`, then `up -d --remove-orphans` |
+| **6** | Prune dangling Docker images |
+| **7** | Write a deploy summary to the GitHub Actions job summary (including failure details on error) |
+| **8** | (Optional) Tear down WireGuard on completion |
 
 </td></tr>
 </table>
@@ -116,6 +117,26 @@ op_secret_files: ".env.tpl:.env config/app.yml"
 </details>
 
 <details>
+<summary><strong>Deploying a repo with git submodules</strong></summary>
+
+Set `submodules: "true"` to run `git submodule update --init --recursive` after the repository sync. Submodules are checked out at the exact commits recorded in the deployed SHA — they will never drift ahead.
+
+```yaml
+- uses: cioos-siooc/cioos-deploy-docker-compose@main
+  with:
+    ssh_host: "10.0.0.1"
+    ssh_username: "github-deploy"
+    ssh_key: ${{ secrets.SSH_KEY }}
+    deploy_path: "/opt/myapp"
+    stack_name: "myapp"
+    submodules: "true"
+```
+
+> Private submodules are authenticated using the same `GITHUB_TOKEN` used for the main repo clone.
+
+</details>
+
+<details>
 <summary><strong>Deploying multiple instances on the same host</strong></summary>
 
 Use different `deploy_path` and `stack_name` values per branch/environment:
@@ -160,6 +181,7 @@ Use different `deploy_path` and `stack_name` values per branch/environment:
 | `docker_compose_down` | No | `false` | Run `docker compose down` before `up` |
 | `wg_config` | No | | WireGuard config file content (skipped if empty) |
 | `wireguard_interface` | No | `wg0` | WireGuard interface name |
+| `submodules` | No | `false` | Initialize and update git submodules recursively after clone/pull |
 | `op_secret_files` | No | | Space-separated list of files to inject 1Password secrets into. Use `source:destination` to rename (e.g. `.env.tpl:.env`), or just `file` to inject in place. |
 | `op_service_account_token` | No | | 1Password service account token |
 

@@ -49,6 +49,10 @@ inputs:
     description: "Run docker compose down before up"
     required: false
     default: "false"
+  submodules:
+    description: "Initialize and update git submodules recursively after cloning/pulling"
+    required: false
+    default: "false"
 
 runs:
   using: composite
@@ -127,6 +131,40 @@ runs:
         echo "${OUTPUT}"
         echo "::endgroup::"
         echo "DEPLOY_START=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
+
+    - name: Initialize git submodules on remote server
+      if: inputs.submodules == 'true'
+      shell: bash
+      run: |
+        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
+        REPO_URL_BASE="https://x-access-token:${GITHUB_TOKEN}@github.com"
+        echo "::notice::Initializing git submodules at ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
+        echo "::group::Submodule init output"
+        if ! OUTPUT=$(${SSH_CMD} bash -s -- "${REPO_URL_BASE}" <<'REMOTE_SCRIPT' 2>&1
+          set -e
+          REPO_URL_BASE="$1"
+          cd "${{ inputs.deploy_path }}"
+          git config --global url."${REPO_URL_BASE}/".insteadOf "https://github.com/"
+          git submodule update --init --recursive
+          git config --global --unset url."${REPO_URL_BASE}/".insteadOf || true
+          echo "Submodule init complete."
+        REMOTE_SCRIPT
+        ); then
+          echo "${OUTPUT}"
+          echo "::endgroup::"
+          {
+            echo "DEPLOY_ERROR<<EOF"
+            echo "Submodule initialization failed:"
+            echo "${OUTPUT}" | tail -20
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
+          exit 1
+        fi
+        echo "${OUTPUT}"
+        echo "::endgroup::"
       env:
         GITHUB_TOKEN: ${{ github.token }}
 
@@ -235,6 +273,7 @@ runs:
           echo "| **Branch / Ref** | \`${REF_NAME}\` |"
           echo "| **Compose files** | \`${{ inputs.compose_files }}\` |"
           echo "| **Compose down** | \`${{ inputs.docker_compose_down }}\` |"
+          echo "| **Submodules** | \`${{ inputs.submodules }}\` |"
           echo "| **1Password secrets** | \`${{ inputs.op_secret_files || 'none' }}\` |"
           echo "| **WireGuard** | \`${{ inputs.wg_config != '' && 'yes' || 'no' }}\` |"
           echo "| **Started** | \`${DEPLOY_START:-N/A}\` |"
