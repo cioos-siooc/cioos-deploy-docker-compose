@@ -75,7 +75,16 @@ runs:
       shell: bash
       run: |
         sudo wg show ${{ inputs.wireguard_interface }}
-        ping -c 3 ${{ inputs.ssh_host }}
+        if ! ping -c 3 ${{ inputs.ssh_host }}; then
+          echo "::error::Failed to reach ${{ inputs.ssh_host }} over WireGuard interface ${{ inputs.wireguard_interface }}. Check your VPN config and that the peer is reachable."
+          {
+            echo "DEPLOY_ERROR<<EOF"
+            echo "WireGuard VPN connection failed: could not reach ${{ inputs.ssh_host }} via interface ${{ inputs.wireguard_interface }}."
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
+          exit 1
+        fi
 
     - name: Setup SSH
       shell: bash
