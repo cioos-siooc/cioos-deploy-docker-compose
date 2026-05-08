@@ -53,6 +53,10 @@ inputs:
     description: "Initialize and update git submodules recursively after cloning/pulling"
     required: false
     default: "false"
+  env_overrides:
+    description: "Newline-separated KEY=VALUE pairs appended to .env after 1Password injection. Use this to inject GitHub Actions variables or secrets into the deployment environment."
+    required: false
+    default: ""
 
 runs:
   using: composite
@@ -211,6 +215,28 @@ runs:
         fi
         echo "${OUTPUT}"
         echo "::endgroup::"
+
+    - name: Append env overrides on remote host
+      if: inputs.env_overrides != ''
+      shell: bash
+      env:
+        ENV_OVERRIDES: ${{ inputs.env_overrides }}
+      run: |
+        SSH_CMD="ssh -i ~/.ssh/deploy_key -p ${{ inputs.ssh_port }} ${{ inputs.ssh_username }}@${{ inputs.ssh_host }}"
+        OVERRIDES_B64=$(printf '%s\n' "${ENV_OVERRIDES}" | base64 -w 0)
+        echo "::notice::Appending env overrides to .env"
+        if ! OUTPUT=$(${SSH_CMD} "cd '${{ inputs.deploy_path }}' && echo '${OVERRIDES_B64}' | base64 -d >> .env && echo 'Env overrides appended.'" 2>&1); then
+          echo "${OUTPUT}"
+          {
+            echo "DEPLOY_ERROR<<EOF"
+            echo "Env overrides injection failed:"
+            echo "${OUTPUT}" | tail -20
+            echo "EOF"
+          } >> "$GITHUB_ENV"
+          echo "DEPLOY_RESULT=failed" >> "$GITHUB_ENV"
+          exit 1
+        fi
+        echo "${OUTPUT}"
 
     - name: Deploy with Docker Compose
       shell: bash
