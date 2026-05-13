@@ -117,7 +117,7 @@ runs:
             echo "Existing repo found, pulling latest changes..."
             cd "${{ inputs.deploy_path }}"
             git remote set-url origin "${REPO_URL}"
-            git fetch origin
+            git fetch origin --no-recurse-submodules
             git checkout -f "${REF}" || git checkout -b "${REF}" "origin/${REF}"
             git reset --hard "${SHA}"
           else
@@ -160,7 +160,8 @@ runs:
           REPO_URL_BASE="$1"
           cd "${{ inputs.deploy_path }}"
           git config --global url."${REPO_URL_BASE}/".insteadOf "https://github.com/"
-          git submodule update --init --recursive
+          git submodule sync --recursive
+          git submodule update --init --recursive --force
           git config --global --unset url."${REPO_URL_BASE}/".insteadOf || true
           echo "Submodule init complete."
         REMOTE_SCRIPT
