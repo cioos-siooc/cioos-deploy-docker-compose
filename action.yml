@@ -105,6 +105,7 @@ runs:
         REPO_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
         REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
         REF="${REF#refs/heads/}"
+        REF="${REF#refs/tags/}"
         SHA="${{ inputs.git_sha || github.sha }}"
         echo "::notice::Syncing ${GITHUB_REPOSITORY} (ref: ${REF}, sha: ${SHA::7}) to ${{ inputs.ssh_host }}:${{ inputs.deploy_path }}"
         echo "::group::Git sync output"
@@ -117,7 +118,8 @@ runs:
             echo "Existing repo found, pulling latest changes..."
             cd "${{ inputs.deploy_path }}"
             git remote set-url origin "${REPO_URL}"
-            git fetch origin --no-recurse-submodules
+            # --force: a re-pointed release tag must not abort the fetch.
+            git fetch origin --tags --force --no-recurse-submodules
             git checkout -f "${REF}" || git checkout -b "${REF}" "origin/${REF}"
             git reset --hard "${SHA}"
           else
@@ -286,6 +288,7 @@ runs:
       run: |
         REF="${GITHUB_HEAD_REF:-${GITHUB_REF}}"
         REF_NAME="${REF#refs/heads/}"
+        REF_NAME="${REF_NAME#refs/tags/}"
         SHA="${{ inputs.git_sha || github.sha }}"
         DEPLOY_END="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
         if [ "${DEPLOY_RESULT}" = "failed" ]; then
