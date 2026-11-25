@@ -178,7 +178,9 @@ Use different `deploy_path` and `stack_name` values per branch/environment:
 | `stack_name` | **Yes** | | Docker Compose project name |
 | `ssh_port` | No | `22` | Remote SSH port |
 | `compose_files` | No | `docker-compose.yml` | Space-separated list of compose files |
-| `docker_compose_down` | No | `false` | Run `docker compose down` before `up` |
+| `docker_compose_down` | No | `false` | Run `docker compose down` before `up`. Leave off to recreate only the services whose image or config changed |
+| `wait` | No | `false` | Run `up` with `--wait`: the deploy fails if a service doesn't become running/healthy |
+| `wait_timeout` | No | `300` | Seconds `--wait` allows for the stack to become healthy |
 | `wg_config` | No | | WireGuard config file content (skipped if empty) |
 | `wireguard_interface` | No | `wg0` | WireGuard interface name |
 | `submodules` | No | `false` | Initialize and update git submodules recursively after clone/pull |
