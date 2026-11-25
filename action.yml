@@ -49,6 +49,14 @@ inputs:
     description: "Run docker compose down before up"
     required: false
     default: "false"
+  wait:
+    description: "Run docker compose up with --wait, failing the deploy if a service doesn't become running/healthy"
+    required: false
+    default: "false"
+  wait_timeout:
+    description: "Seconds --wait allows for the stack to become healthy"
+    required: false
+    default: "300"
   submodules:
     description: "Initialize and update git submodules recursively after cloning/pulling"
     required: false
@@ -250,6 +258,10 @@ runs:
           FLAGS="${FLAGS} -f ${f}"
         done
         COMPOSE="docker compose -p ${{ inputs.stack_name }} ${FLAGS}"
+        UP="${COMPOSE} up -d --remove-orphans"
+        if [ "${{ inputs.wait }}" = "true" ]; then
+          UP="${UP} --wait --wait-timeout ${{ inputs.wait_timeout }}"
+        fi
         echo "::notice::Deploying stack '${{ inputs.stack_name }}' to ${{ inputs.ssh_host }}"
         echo "::group::Building images"
         SCRIPT="set -e && cd ${{ inputs.deploy_path }} && echo 'Building images...' && ${COMPOSE} build --pull"
@@ -257,10 +269,8 @@ runs:
           SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Stopping existing containers' && ${COMPOSE} down --remove-orphans"
           SCRIPT="${SCRIPT} && echo 'Waiting for all containers to be removed...'"
           SCRIPT="${SCRIPT} && for i in \$(seq 1 30); do [ -z \"\$(docker ps -q -f label=com.docker.compose.project=${{ inputs.stack_name }})\" ] && break; echo \"Waiting... (\${i}/30)\"; sleep 2; done"
-          SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Starting containers' && ${COMPOSE} up -d --remove-orphans"
-        else
-          SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Starting containers' && ${COMPOSE} up -d --remove-orphans"
         fi
+        SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Starting containers' && ${UP}"
         SCRIPT="${SCRIPT} && echo '::endgroup::' && echo '::group::Pruning unused images' && docker image prune -f"
         SCRIPT="${SCRIPT} && echo '::endgroup::'"
         if OUTPUT=$(${SSH_CMD} "${SCRIPT}" 2>&1); then
@@ -312,6 +322,7 @@ runs:
           echo "| **Branch / Ref** | \`${REF_NAME}\` |"
           echo "| **Compose files** | \`${{ inputs.compose_files }}\` |"
           echo "| **Compose down** | \`${{ inputs.docker_compose_down }}\` |"
+          echo "| **Wait** | \`${{ inputs.wait }}\` |"
           echo "| **Submodules** | \`${{ inputs.submodules }}\` |"
           echo "| **1Password secrets** | \`${{ inputs.op_secret_files || 'none' }}\` |"
           echo "| **WireGuard** | \`${{ inputs.wg_config != '' && 'yes' || 'no' }}\` |"
